@@ -1,0 +1,325 @@
+--[[
+    BRAINROT DESTROYER PRO v4 MEJORADO (2025)
+    - Detección ULTIMATE: Leaderstats de TODOS los jugadores + valores globales + scan completo
+    - Configurable TARGET_AMOUNT (K/M/B)
+    - Hopping OPTIMIZADO: Servidores con 5+ jugadores, evita full/low
+    - GUI MODERNA: Rounded, Center, Auto-update richest
+    - Auto-check al cargar + Stop/Start/Check buttons
+    - MAX_HOPS infinito opcional
+    - ¡Encuentra servidores RICOS al INSTANTE! 🤑
+]]
+local Players = game:GetService("Players")
+local LocalPlayer = Players.LocalPlayer
+local TeleportService = game:GetService("TeleportService")
+local HttpService = game:GetService("HttpService")
+local RunService = game:GetService("RunService")
+local TweenService = game:GetService("TweenService")
+
+-- Configuración MEJORADA
+local TARGET_AMOUNT = 20000000 -- Default 20M
+local SEARCH_DELAY = 3 -- Más rápido
+local MAX_HOPS = 100 -- Más hops
+local MIN_PLAYERS = 5 -- Servidores con al menos 5 players (más ricos)
+local MAX_FILL = 0.9 -- No full servers
+
+-- Variables
+local autoHopping = false
+local hopCount = 0
+local foundServer = false
+local richestValue = 0
+local richestPlayer = nil
+
+-- GUI
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.Name = "BrainrotDestroyerV4"
+ScreenGui.Parent = game.CoreGui
+ScreenGui.ResetOnSpawn = false
+
+local MainFrame = Instance.new("Frame")
+MainFrame.Name = "MainFrame"
+MainFrame.Parent = ScreenGui
+MainFrame.BackgroundColor3 = Color3.fromRGB(25, 25, 35)
+MainFrame.BorderColor3 = Color3.fromRGB(0, 170, 255)
+MainFrame.Position = UDim2.new(0.5, -150, 0.5, -220)
+MainFrame.Size = UDim2.new(0, 300, 0, 450)
+MainFrame.Active = true
+MainFrame.Draggable = true
+
+local UICorner = Instance.new("UICorner")
+UICorner.CornerRadius = UDim.new(0, 12)
+UICorner.Parent = MainFrame
+
+local UIGradient = Instance.new("UIGradient")
+UIGradient.Color = ColorSequence.new{
+    ColorSequenceKeypoint.new(0, Color3.fromRGB(25,25,35)),
+    ColorSequenceKeypoint.new(1, Color3.fromRGB(40,40,55))
+}
+UIGradient.Rotation = 45
+UIGradient.Parent = MainFrame
+
+local Title = Instance.new("TextLabel")
+Title.Parent = MainFrame
+Title.BackgroundTransparency = 1
+Title.Size = UDim2.new(1, 0, 0, 60)
+Title.Font = Enum.Font.GothamBold
+Title.Text = "🤑 BRAINROT DESTROYER PRO v4"
+Title.TextColor3 = Color3.fromRGB(255, 255, 255)
+Title.TextSize = 20
+Title.TextStrokeTransparency = 0.5
+Title.TextStrokeColor3 = Color3.fromRGB(0,170,255)
+
+-- Amount Input
+local AmountLabel = Instance.new("TextLabel")
+AmountLabel.Parent = MainFrame
+AmountLabel.BackgroundTransparency = 1
+AmountLabel.Position = UDim2.new(0, 20, 0, 70)
+AmountLabel.Size = UDim2.new(0.4, 0, 0, 30)
+AmountLabel.Font = Enum.Font.GothamSemibold
+AmountLabel.Text = "Target:"
+AmountLabel.TextColor3 = Color3.fromRGB(200,200,200)
+AmountLabel.TextSize = 14
+AmountLabel.TextXAlignment = Enum.TextXAlignment.Left
+
+local AmountBox = Instance.new("TextBox")
+AmountBox.Parent = MainFrame
+AmountBox.Position = UDim2.new(0.55, 0, 0, 70)
+AmountBox.Size = UDim2.new(0.42, 0, 0, 30)
+AmountBox.BackgroundColor3 = Color3.fromRGB(40,40,50)
+AmountBox.PlaceholderText = "20M"
+AmountBox.Text = "20M"
+AmountBox.Font = Enum.Font.Gotham
+AmountBox.TextColor3 = Color3.fromRGB(255,255,255)
+AmountBox.TextSize = 14
+local AmountCorner = Instance.new("UICorner", AmountBox) AmountCorner.CornerRadius = UDim.new(0,6)
+
+AmountBox.FocusLost:Connect(function()
+    TARGET_AMOUNT = parseAmount(AmountBox.Text)
+    updateStatus("Target actualizado: " .. formatNumber(TARGET_AMOUNT))
+end)
+
+-- Richest Label
+local RichestLabel = Instance.new("TextLabel")
+RichestLabel.Parent = MainFrame
+RichestLabel.BackgroundTransparency = 1
+RichestLabel.Position = UDim2.new(0, 20, 0, 105)
+RichestLabel.Size = UDim2.new(1, -40, 0, 35)
+RichestLabel.Font = Enum.Font.GothamBold
+RichestLabel.Text = "Richest: 0"
+RichestLabel.TextColor3 = Color3.fromRGB(0, 255, 100)
+RichestLabel.TextSize = 16
+RichestLabel.TextXAlignment = Enum.TextXAlignment.Left
+
+-- Status
+local StatusLabel = Instance.new("TextLabel")
+StatusLabel.Parent = MainFrame
+StatusLabel.BackgroundTransparency = 1
+StatusLabel.Position = UDim2.new(0, 20, 0, 380)
+StatusLabel.Size = UDim2.new(1, -40, 0, 40)
+StatusLabel.Font = Enum.Font.GothamSemibold
+StatusLabel.Text = "Estado: Cargando..."
+StatusLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
+StatusLabel.TextSize = 14
+StatusLabel.TextXAlignment = Enum.TextXAlignment.Left
+StatusLabel.TextWrapped = true
+
+-- Funciones Helper
+local function parseAmount(str)
+    str = str:upper():gsub("%s+", "")
+    local num = tonumber(str:gsub("[KMBkmB]", ""))
+    if not num then return 20000000 end
+    if str:match("M") then return num * 1000000
+    elseif str:match("B") then return num * 1000000000
+    elseif str:match("K") then return num * 1000 end
+    return num
+end
+
+local function formatNumber(num)
+    if num >= 1e12 then return string.format("%.1fT", num/1e12)
+    elseif num >= 1e9 then return string.format("%.1fB", num/1e9)
+    elseif num >= 1e6 then return string.format("%.1fM", num/1e6)
+    elseif num >= 1e3 then return string.format("%.1fK", num/1e3) end
+    return tostring(num)
+end
+
+local function tweenButton(btn, color)
+    TweenService:Create(btn, TweenInfo.new(0.2), {BackgroundColor3 = color}):Play()
+end
+
+local function createButton(name, text, yPos, callback)
+    local btn = Instance.new("TextButton")
+    btn.Name = name
+    btn.Parent = MainFrame
+    btn.Position = UDim2.new(0.05, 0, 0, yPos)
+    btn.Size = UDim2.new(0.9, 0, 0, 50)
+    btn.BackgroundColor3 = Color3.fromRGB(40, 40, 50)
+    btn.Font = Enum.Font.GothamSemibold
+    btn.Text = text
+    btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    btn.TextSize = 15
+    local btnCorner = Instance.new("UICorner", btn) btnCorner.CornerRadius = UDim.new(0, 8)
+    
+    btn.MouseButton1Click:Connect(callback)
+    btn.MouseEnter:Connect(function() tweenButton(btn, Color3.fromRGB(60, 60, 70)) end)
+    btn.MouseLeave:Connect(function() tweenButton(btn, Color3.fromRGB(40, 40, 50)) end)
+    
+    return btn
+end
+
+--------------------------------------------------------------------------------
+-- FUNCIÓN ULTIMATE DE DETECCIÓN (v4)
+--------------------------------------------------------------------------------
+local function isBrainrotServer()
+    task.wait(2) -- Espera load leaderstats
+    
+    local maxVal = 0
+    local richPlayer = nil
+    
+    -- 1. PRIORIDAD: Leaderstats de TODOS los jugadores (EXCLUYENDO TUYO)
+    for _, player in pairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer and player:FindFirstChild("leaderstats") then
+            for _, obj in pairs(player.leaderstats:GetChildren()) do
+                if (obj:IsA("IntValue") or obj:IsA("NumberValue")) then
+                    local val = obj.Value
+                    if val > maxVal then
+                        maxVal = val
+                        richPlayer = player.Name .. " (" .. obj.Name .. ")"
+                    end
+                    if val >= TARGET_AMOUNT then
+                        richestValue = val
+                        richestPlayer = richPlayer
+                        return true
+                    end
+                end
+            end
+        end
+    end
+    
+    -- 2. Valores nombrados comunes
+    local targetNames = {
+        "Coins", "Money", "Cash", "Gold", "Points", "Currency", "Bank", "Amount",
+        "Value", "Total", "Balance", "Gems", "Tokens", "Diamonds", "Riches"
+    }
+    
+    local places = {workspace, game:GetService("ReplicatedStorage")}
+    for _, place in pairs(places) do
+        for _, name in pairs(targetNames) do
+            local obj = place:FindFirstChild(name, true)
+            if obj and (obj:IsA("NumberValue") or obj:IsA("IntValue")) and obj.Value >= TARGET_AMOUNT then
+                return true
+            elseif obj and obj:IsA("StringValue") then
+                local num = tonumber(obj.Value:gsub("[^%d.]", ""))
+                if num and num >= TARGET_AMOUNT then return true end
+            end
+        end
+    end
+    
+    -- 3. Scan folders comunes en workspace (Tycoons/Stats)
+    for _, obj in pairs(workspace:GetChildren()) do
+        if obj:IsA("Folder") and (obj.Name:lower():find("leader") or obj.Name:lower():find("stat") or obj.Name:lower():find("money")) then
+            for _, val in pairs(obj:GetChildren()) do
+                if (val:IsA("IntValue") or val:IsA("NumberValue")) and val.Value >= TARGET_AMOUNT then
+                    return true
+                end
+            end
+        end
+    end
+    
+    -- Update richest
+    richestValue = maxVal
+    RichestLabel.Text = "Richest: " .. formatNumber(maxVal) .. (richPlayer and " (" .. richPlayer .. ")" or "")
+    
+    return false
+end
+
+--------------------------------------------------------------------------------
+-- HOP OPTIMIZADO
+--------------------------------------------------------------------------------
+local function hopToNewServer()
+    local success, result = pcall(HttpService.JSONDecode, HttpService, game:HttpGet(
+        "https://games.roblox.com/v1/games/" .. game.PlaceId .. "/servers/Public?sortOrder=Desc&limit=100"
+    ))
+    
+    if not success or not result or not result.data then
+        warn("Error fetching servers")
+        TeleportService:Teleport(game.PlaceId, LocalPlayer) -- Fallback
+        return
+    end
+    
+    local available = {}
+    for _, server in pairs(result.data) do
+        local playing = server.playing
+        local maxp = server.maxPlayers
+        if server.id ~= game.JobId and playing >= MIN_PLAYERS and playing / maxp < MAX_FILL then
+            table.insert(available, server.id)
+        end
+    end
+    
+    if #available > 0 then
+        local chosen = available[math.random(1, #available)]
+        TeleportService:TeleportToPlaceInstance(game.PlaceId, chosen, LocalPlayer)
+    else
+        TeleportService:Teleport(game.PlaceId, LocalPlayer)
+    end
+end
+
+--------------------------------------------------------------------------------
+-- FUNCIONES GUI
+--------------------------------------------------------------------------------
+local function updateStatus(text)
+    StatusLabel.Text = "Estado: " .. text
+end
+
+local function checkCurrent()
+    updateStatus("Verificando...")
+    if isBrainrotServer() then
+        updateStatus("¡SERVIDOR RICO ENCONTRADO! 🤑 No hops.")
+        RichestLabel.TextColor3 = Color3.fromRGB(0, 255, 0)
+    else
+        updateStatus("Pobre... Richest bajo target.")
+        RichestLabel.TextColor3 = Color3.fromRGB(255, 100, 100)
+    end
+end
+
+local function startHopping()
+    if autoHopping then return end
+    autoHopping = true
+    hopCount = 0
+    spawn(function()
+        while autoHopping do
+            updateStatus("Hopping " .. hopCount .. " | Target: " .. formatNumber(TARGET_AMOUNT))
+            if isBrainrotServer() then
+                updateStatus("¡RICO ENCONTRADO! 🤑🤑🤑")
+                autoHopping = false
+                return
+            end
+            hopToNewServer()
+            hopCount += 1
+            if hopCount >= MAX_HOPS then
+                updateStatus("Max hops. Reinicia.")
+                autoHopping = false
+                return
+            end
+            task.wait(SEARCH_DELAY)
+        end
+    end)
+end
+
+local function stopHopping()
+    autoHopping = false
+    updateStatus("Detenido")
+end
+
+-- BOTONES
+createButton("StartBtn", "🚀 START HOPPING", 150, startHopping)
+createButton("StopBtn", "⏹️ STOP", 210, stopHopping)
+createButton("CheckBtn", "🔍 CHECK AHORA", 270, checkCurrent)
+createButton("InfiniteBtn", "♾️ MODO INFINITO", 330, function()
+    MAX_HOPS = math.huge
+    updateStatus("Modo infinito activado!")
+end)
+
+-- AUTO-CHECK AL CARGAR
+task.wait(1)
+checkCurrent()
+
+print("🤑 Brainrot Destroyer v4 cargado! GUI en pantalla.")
